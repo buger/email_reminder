@@ -1,0 +1,17 @@
+{
+	"name": "Email Reminder",
+	"version": "0.1",
+	"description": "Email Reminder",
+
+	"content_scripts": [
+		{
+			"matches": ["https://mail.google.com/mail/*"],
+			"js": ["lib/jquery.min.js","content_script.js"],
+			"run_at": "document_start"
+		}
+	],
+
+	"permissions": [
+  		"https://mail.google.com/mail/*"
+	]
+}
