@@ -1,3 +1,5 @@
+store = {}
+
 template = "
 <tr>
     <td class='eD'>&nbsp;</td>
@@ -12,7 +14,7 @@ template = "
                 </select>
                 <div id='emailReminderDelay' style='display:inline-block'>
                     <div id='emailReminder-send' class='Pl J-J5-Ji'>
-                        <div id='conditional-caption' aria-haspopup='true' style='-moz-user-select:none; cursor:default; padding: 3px 3px; margin-left: 5px; font-size: 100%;' role='button' class='tk3N6e-I-n2to0e J-Zh-I J-J5-Ji Bq L3' tabindex='0'> in 2 days <div class='VP5otc-d2fWKd tk3N6e-I-J3 J-J5-Ji'> </div>
+                        <div id='conditional-caption' aria-haspopup='true' style='-moz-user-select:none; cursor:default; padding: 3px 3px; margin-left: 5px; font-size: 100%;' role='button' class='tk3N6e-I-n2to0e J-Zh-I J-J5-Ji Bq L3' tabindex='0'> never <div class='VP5otc-d2fWKd tk3N6e-I-J3 J-J5-Ji'> </div>
                         </div>
                     </div>
                 </div>
@@ -26,27 +28,33 @@ menu_link_style = 'text-decoration:none;color:inherit;line-height:1.1em;padding:
 
 menu_template = "
     <div class='J-M AW' role='menu' aria-haspopup='true' aria-activedescendant=''>
-        <div id='b4g_inner_menu' class='b4g_menu SK AX AW' style='margin-top:-1px;margin-left:5px;z-index:999;list-style:none;width:16em; font-size:100%;'>
+        <div class='SK AX AW' style='margin-top:-1px;margin-left:5px;z-index:999;list-style:none;width:16em; font-size:100%;'>
                 <div>
-                    <a style='#{menu_link_style}'>in 1 hour</a>
+                    <a style='#{menu_link_style}' class='menu-anchor J-N'>never</a>
                 </div>
                 <div>
-                    <a style='#{menu_link_style}; border-bottom-width: 1px; border-bottom-style: solid; border-bottom-color: rgb(220, 220, 220); padding-bottom: 5px; margin-bottom: 5px; ' class='menu-anchor J-N'>in 1 day</a>
+                    <a style='#{menu_link_style}' class='menu-anchor J-N' data-time='#{3600}'>in 1 hour</a>
                 </div>
                 <div>
-                    <a style='#{menu_link_style}' class='menu-anchor J-N'>in 2 days</a>
+                    <a style='#{menu_link_style}' data-time='#{3600*24}' class='menu-anchor J-N'>in 1 day</a>
                 </div>
                 <div>
-                    <a style='#{menu_link_style}' class='menu-anchor J-N'>in 4 days</a>
+                    <a style='#{menu_link_style}' data-time='#{3600*24*2}' class='menu-anchor J-N'>in 2 days</a>
                 </div>
                 <div>
-                    <a style='#{menu_link_style}' class='menu-anchor J-N'>in 1 week</a>
+                    <a style='#{menu_link_style}' data-time='#{3600*24*4}' class='menu-anchor J-N'>in 4 days</a>
                 </div>
                 <div>
-                    <a style='#{menu_link_style}' class='menu-anchor J-N'>in 2 weeks</a>
+                    <a style='#{menu_link_style}' data-time='#{3600*24*7}' class='menu-anchor J-N'>in 1 week</a>
                 </div>
                 <div>
-                    <a style='#{menu_link_style}' class='menu-anchor J-N'>in 1 month</a>
+                    <a style='#{menu_link_style}' data-time='#{3600*24*14}' class='menu-anchor J-N'>in 2 weeks</a>
+                </div>
+                <div>
+                    <a style='#{menu_link_style}' data-time='1m' class='menu-anchor J-N'>in 1 month</a>
+                </div>
+                <div>
+                    <a style='#{menu_link_style}' data-time='1m' class='show_notification J-N'>Show sample notification</a>
                 </div>
                 <div class='menu-caption' style='margin-left:3px'>By a specific time</div>
                 <div style='color: #333; font-style: italic; font-size: 0.8em; margin-top: 3px; margin-left: 3px;' class='b4g_menu'>Examples: <strong>\'Monday 9am\'</strong>, <strong>\'Dec 23\'</strong><br>
@@ -72,36 +80,42 @@ class Reminder
     constructor: ->
         window.addEventListener 'popstate', 
             (evt) => @locationChanged(evt)
-        , false            
+        , false
+        
+        setInterval =>
+            @locationChanged()
+        , 500
 
 
     locationChanged: (evt) ->
+        @detectDocument()
+        # If already injected
+        return false if $("#emailReminder", @doc).length
+
         hash = document.location.hash
 
-        console.log 'hash changed', hash
-
-        switch true
-            when hash.match(/#(compose|(?:inbox\/(.*)))/) isnt undefined
-                @addUI()
+        match = hash.match(/#(compose|(?:(?:inbox|draft)\/(.*)))/)
+        @addUI match?[2]
 
 
-    addUI: ->
-        @detectDocument()
 
-        # If already injected
-        return false if $("#emailReminder", @doc).length        
+    addUI: (email_id) ->
+        console.warn email_id        
                     
         lastrow = $("tr.ee", @doc)
         container = $(template)
         container.insertBefore(lastrow)
 
-        console.log('injected')
-
         container.find('#emailReminder-send')            
             .bind('click', (evt) =>
                 unless $(evt.currentTarget).find('.J_M').length
                     $(menu_template).appendTo($(evt.currentTarget))
-                        .bind('click', =>
+                        .delegate("a.menu-anchor", "click", (evt) =>
+                            $('#conditional-caption', @doc).html(evt.currentTarget.innerHTML);     
+
+                            $('.J-M', @doc).hide();
+                        )
+                        .delegate("a.show_notification", "click", (evt) =>
                             @showNotification()
                         )
                 else
@@ -113,14 +127,17 @@ class Reminder
 
 
         $(@doc).bind 'click', (evt) =>                       
-            if !$(evt.currentTarget, @doc).closest('.J-M').length
+            if evt.currentTarget.nodeName.toUpperCase() is 'A' or !$(evt.currentTarget, @doc).closest('.J-M').length
                 $('.J-M', @doc).hide()
 
 
     showNotification: ->
-        console.log 'showing notification'
-
-        $(".b8.UC .vh", @doc).html("Email reminder for <span class='ag ca' role='link'>mail</span>&nbsp;<span class='ag ca' role='link'>close</span>")
+        $(".b8.UC .vh", @doc).html("Email reminder for <span class='ag ca' role='link'>mail</span>&nbsp;<span class='ag ca close' role='link'>close</span>")
+            .delegate(".close", "click", =>
+                $(".b8.UC", @doc).css({
+                    visibility: "hidden"
+                })
+            )
         $(".b8.UC", @doc).css({
             visibility: "visible"
         })
