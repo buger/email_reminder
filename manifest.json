@@ -11,7 +11,9 @@
 		}
 	],
 
+	"background_page": "background.html",
+
 	"permissions": [
-  		"https://mail.google.com/mail/*"
+  		"tabs", "https://mail.google.com/mail/*", "https://www.google.com/accounts/OAuthGetRequestToken*"
 	]
 }
