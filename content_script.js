@@ -1,5 +1,9 @@
 (function() {
-  var Reminder, menu_link_style, menu_template, template;
+  var Reminder, locations, menu_link_style, menu_template, template, wait_for_sent;
+
+  wait_for_sent = null;
+
+  locations = [];
 
   template = "<tr>    <td class='eD'>&nbsp;</td>    <td>        <div id='emailReminder'>            <form style='font-size:12px; float:left; height: 25px;'>                <label><span class='dT'>Remind me</span></label>                <select style='padding: 2px  0;' name='ifResponse' id='emailReminderCondition' >                    <option value='conditional'>if I don't hear back</option>                    <option value='always'>even if someone replies</option>                </select>                <div id='emailReminderDelay' style='display:inline-block'>                    <div id='emailReminder-send' class='Pl J-J5-Ji'>                        <div id='conditional-caption' aria-haspopup='true' style='-moz-user-select:none; cursor:default; padding: 3px 3px; margin-left: 5px; font-size: 100%;' role='button' class='tk3N6e-I-n2to0e J-Zh-I J-J5-Ji Bq L3' tabindex='0'> never <div class='VP5otc-d2fWKd tk3N6e-I-J3 J-J5-Ji'> </div>                        </div>                    </div>                </div>            </form>        </div>    </td></tr>";
 
@@ -16,33 +20,53 @@
       }, false);
       this.logged = false;
       this.detectDocument();
+      console.warn('constructiong');
       chrome.extension.sendRequest({
         method: 'check_auth'
       });
       chrome.extension.onRequest.addListener(function(request, sender, sendResponse) {
-        console.warn("received message", request);
         switch (request.method) {
           case 'logged':
             _this.logged = true;
             return $('#emailReminderAuth', _this.doc).remove();
+          case 'notify':
+            return _this.showNotification(request.thread_id);
         }
       });
       setInterval(function() {
         return _this.addUI();
       }, 500);
+      setInterval(function() {
+        return _this.isMessageSend();
+      }, 500);
     }
 
-    Reminder.prototype.locationChanged = function(evt) {
-      var hash;
-      hash = document.location.hash;
-      switch (true) {
-        case hash.match(/#(compose|(?:inbox\/(.*)))/) !== void 0:
-          return this.addUI(Reg);
+    Reminder.prototype.isMessageSend = function() {
+      var message, param, thread_id;
+      message = $(".b8.UC .vh", this.doc).text();
+      if (message.match(/Your message has been sent/) && wait_for_sent) {
+        param = $(".b8.UC .vh #link_undo", this.doc).attr('param');
+        thread_id = param.replace("UndoSendParam_", "");
+        this.handleEvent(thread_id);
+        return wait_for_sent = null;
       }
     };
 
+    Reminder.prototype.locationChanged = function(evt) {
+      var hash, prev;
+      hash = document.location.hash;
+      console.log('location changed', hash);
+      switch (true) {
+        case hash.match(/#(compose|(?:(?:inbox|draft)\/(.*)))/) !== void 0:
+          prev = locations[locations.length - 1];
+          if (!RegExp['$2'] && prev !== "#compose") wait_for_sent = null;
+          this.addUI();
+      }
+      return locations.push(hash);
+    };
+
     Reminder.prototype.addUI = function() {
-      var container, lastrow;
+      var container, lastrow, menu;
       var _this = this;
       this.detectDocument();
       if ($("#emailReminderAuth", this.doc).length === 0 && !this.logged) {
@@ -65,11 +89,12 @@
       lastrow = $("tr.ee", this.doc);
       container = $(template);
       container.insertBefore(lastrow);
+      menu = void 0;
       container.find('#emailReminder-send').bind('click', function(evt) {
         if (!$(evt.currentTarget).closest('.J_M').length) {
-          $(menu_template).appendTo($(evt.currentTarget)).delegate("a.menu-anchor", "click", function(evt) {
+          menu = $(menu_template).appendTo($(evt.currentTarget)).delegate("a.menu-anchor", "click", function(evt) {
             $('#conditional-caption', _this.doc).html(evt.currentTarget.innerHTML);
-            _this.handleEvent(evt.currentTarget.dataset.time);
+            wait_for_sent = evt.currentTarget.dataset.time;
             $('.J-M', _this.doc).remove();
             return false;
           }).delegate("a.show_notification", "click", function(evt) {
@@ -81,20 +106,63 @@
         return evt.stopPropagation();
       });
       return $(this.doc).bind('click', function(evt) {
-        if (!$(evt.currentTarget, _this.doc).closest('.J-M').length) {
-          return $('.J-M', _this.doc).hide();
+        if (menu && !$(evt.currentTarget, _this.doc).closest('.J-M').length) {
+          menu.remove();
+          return menu = void 0;
         }
       });
     };
 
-    Reminder.prototype.handleEvent = function(time) {
-      return chrome.extension.sendRequest({
-        method: 'check_auth'
+    Reminder.prototype.stripEmailAddresses = function(email) {
+      var match, rEMAIL;
+      rEMAIL = /[a-zA-Z0-9\._+-]+@[a-zA-Z0-9\.-]+\.[a-z\.A-Z]+/g;
+      match = rEMAIL.match(email);
+      return match.join(" ");
+    };
+
+    Reminder.prototype.extractEmailAddressesFromField = function(b) {
+      var a;
+      a = $("[name=" + b + "]", this.doc).first().val();
+      return a != null ? a : {
+        "None": this.stripEmailAddresses(a)
+      };
+    };
+
+    Reminder.prototype.getEmailIdentifier = function() {
+      var url;
+      url = window.location.toString();
+      return url.substring(url.lastIndexOf('/') + 1);
+    };
+
+    Reminder.prototype.handleEvent = function(thread_id) {
+      var data;
+      data = {
+        method: 'addEvent',
+        thread_id: thread_id,
+        time: wait_for_sent
+      };
+      return chrome.extension.sendRequest(data);
+    };
+
+    Reminder.prototype.hideNotification = function(thread_id) {
+      chrome.extension.sendRequest({
+        method: 'removeEvent',
+        thread_id: thread_id
+      });
+      return $(".b8.UC", this.doc).css({
+        visibility: "hidden"
       });
     };
 
-    Reminder.prototype.showNotification = function() {
-      $(".b8.UC .vh", this.doc).html("Email reminder for <span class='ag ca' role='link'>mail</span>&nbsp;<span class='ag ca' role='link'>close</span>");
+    Reminder.prototype.showNotification = function(thread_id) {
+      var notification;
+      var _this = this;
+      notification = $(".b8.UC .vh", this.doc).html("Email reminder for <span class='ag ca mail' role='link'>mail</span>&nbsp;<span class='ag ca close' role='link'>close</span>").delegate('span.mail', 'click', function(evt) {
+        window.location.hash = "#inbox/" + thread_id;
+        return _this.hideNotification(thread_id);
+      }).delegate('span.close', 'click', function(evt) {
+        return _this.hideNotification(thread_id);
+      });
       return $(".b8.UC", this.doc).css({
         visibility: "visible"
       });

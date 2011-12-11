@@ -1,3 +1,7 @@
+wait_for_sent = null
+locations = []
+
+
 template = "
 <tr>
     <td class='eD'>&nbsp;</td>
@@ -81,30 +85,58 @@ class Reminder
               
         @detectDocument()
 
+        console.warn 'constructiong'
+
         chrome.extension.sendRequest method: 'check_auth'
 
         chrome.extension.onRequest.addListener (request, sender, sendResponse) =>
-            console.warn "received message", request
-
             switch request.method
                 when 'logged'
                     @logged = true                    
                     $('#emailReminderAuth', @doc).remove()
+                when 'notify'
+                    @showNotification request.thread_id
 
         setInterval =>
             @addUI()
         , 500
+        
+        setInterval =>
+            @isMessageSend()    
+        , 500
+
+    
+    isMessageSend: ->
+        message = $(".b8.UC .vh", @doc).text()
+
+        if message.match(/Your message has been sent/) and wait_for_sent
+            param = $(".b8.UC .vh #link_undo", @doc).attr('param')
+
+            thread_id = param.replace("UndoSendParam_","")
+
+            @handleEvent thread_id
+
+            wait_for_sent = null
 
 
     locationChanged: (evt) ->
         hash = document.location.hash
 
+        console.log 'location changed', hash
+
         switch true
-            when hash.match(/#(compose|(?:inbox\/(.*)))/) isnt undefined
-                @addUI(Reg)
+            when hash.match(/#(compose|(?:(?:inbox|draft)\/(.*)))/) isnt undefined
+                prev = locations[locations.length-1]
+
+                if !RegExp['$2'] and prev isnt "#compose"
+                    wait_for_sent = null
+
+                @addUI()
+
+        locations.push hash
 
 
-    addUI: ->        
+    addUI: ->
         @detectDocument()        
 
         if $("#emailReminderAuth", @doc).length is 0 and not @logged
@@ -121,12 +153,7 @@ class Reminder
                 .prependTo(@doc.body)
                 .find('a').bind 'click', ->
                     chrome.extension.sendRequest method: 'auth'
-
-
-        function getIdentifier(URL){
-          return URL.substring(URL.lastIndexOf('/') + 1);
-        }                    
-
+    
 
         # If already injected
         return false if $("#emailReminder", @doc).length    
@@ -144,7 +171,7 @@ class Reminder
                         .delegate("a.menu-anchor", "click", (evt) =>
                             $('#conditional-caption', @doc).html(evt.currentTarget.innerHTML)
                             
-                            @handleEvent evt.currentTarget.dataset.time
+                            wait_for_sent = evt.currentTarget.dataset.time
 
                             $('.J-M', @doc).remove()                           
 
@@ -165,16 +192,55 @@ class Reminder
                 menu.remove()
                 menu = undefined
 
+
+    stripEmailAddresses: (email) ->
+        rEMAIL = /[a-zA-Z0-9\._+-]+@[a-zA-Z0-9\.-]+\.[a-z\.A-Z]+/g
+        match = rEMAIL.match(email)
+        
+        match.join " "
+
+
+    extractEmailAddressesFromField: (b) ->
+        a = $("[name=" + b + "]", @doc).first().val()
+        a ? "None" : @stripEmailAddresses(a)
+
+
+    getEmailIdentifier: ->
+        url = window.location.toString()
+        url.substring(url.lastIndexOf('/') + 1)  
+
     
-    handleEvent: (time) ->
-        chrome.extension.sendRequest method: 'check_auth'
+    handleEvent: (thread_id) ->
+        data =
+            method: 'addEvent'
+            thread_id: thread_id
+            time: wait_for_sent
+ 
+        chrome.extension.sendRequest data
+
+    
+    hideNotification: (thread_id) ->
+        chrome.extension.sendRequest 
+            method: 'removeEvent'
+            thread_id: thread_id
+
+        
+        $(".b8.UC", @doc).css visibility: "hidden"        
 
 
-    showNotification: ->
-        $(".b8.UC .vh", @doc).html("Email reminder for <span class='ag ca' role='link'>mail</span>&nbsp;<span class='ag ca' role='link'>close</span>")
-        $(".b8.UC", @doc).css({
+    showNotification: (thread_id) ->
+        notification = $(".b8.UC .vh", @doc)
+            .html("Email reminder for <span class='ag ca mail' role='link'>mail</span>&nbsp;<span class='ag ca close' role='link'>close</span>")
+            .delegate('span.mail', 'click', (evt) =>
+                window.location.hash = "#inbox/#{thread_id}"
+                @hideNotification thread_id
+            )
+            .delegate('span.close', 'click', (evt) =>
+                @hideNotification thread_id
+            )
+
+        $(".b8.UC", @doc).css
             visibility: "visible"
-        })
             
 
     detectDocument: ->

@@ -1,7 +1,7 @@
 (function() {
-  var oauth;
+  var baseURL, dateToISO;
 
-  oauth = ChromeExOAuth.initBackgroundPage({
+  this.oauth = ChromeExOAuth.initBackgroundPage({
     'request_url': 'https://www.google.com/accounts/OAuthGetRequestToken',
     'authorize_url': 'https://www.google.com/accounts/OAuthAuthorizeToken',
     'access_url': 'https://www.google.com/accounts/OAuthGetAccessToken',
@@ -11,8 +11,20 @@
     'app_name': 'Email Reminder'
   });
 
+  dateToISO = function(d) {
+    var pad;
+    pad = function(n) {
+      if (n < 10) {
+        return '0' + n;
+      } else {
+        return n;
+      }
+    };
+    return [d.getUTCFullYear() + '-', pad(d.getUTCMonth() + 1) + '-', pad(d.getUTCDate()) + 'T', pad(d.getUTCHours()) + ':', pad(d.getUTCMinutes()) + ':', pad(d.getUTCSeconds()) + 'Z'].join('');
+  };
+
   chrome.extension.onRequest.addListener(function(request, sender, sendResponse) {
-    console.warn(sender);
+    var event, new_arr, _i, _len, _ref;
     switch (request.method) {
       case 'auth':
         return oauth.authorize(function(token, secret) {
@@ -22,18 +34,37 @@
           });
         });
       case 'check_auth':
-        if (oauth.getToken()) {
+        if (oauth.getToken() && GC.calendar_id) {
           return chrome.tabs.sendRequest(sender.tab.id, {
             method: 'logged'
           });
         }
+        break;
+      case 'addEvent':
+        return GC.createEvent(request);
+      case 'removeEvent':
+        new_arr = [];
+        _ref = GC.events;
+        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+          event = _ref[_i];
+          if (event.thread_id === request.thread_id) {
+            GC.deleteEvent(event.event_id);
+          } else {
+            new_arr.push(event);
+          }
+        }
+        return GC.events = new_arr;
     }
   });
 
+  baseURL = "https://www.google.com/calendar/feeds";
+
   this.GC = {
+    events: [],
+    calendar_id: localStorage['gc_calendar_id'],
     calendars: function(callback) {
       var request, url;
-      url = 'https://www.google.com/calendar/feeds/default/allcalendars/full';
+      url = "" + baseURL + "/default/allcalendars/full";
       request = {
         'method': 'GET',
         'parameters': {
@@ -46,7 +77,7 @@
     },
     createCalendar: function(callback) {
       var request, url;
-      url = 'https://www.google.com/calendar/feeds/default/owncalendars/full';
+      url = "" + baseURL + "/default/owncalendars/full";
       request = {
         'method': 'POST',
         'headers': {
@@ -76,14 +107,124 @@
           console.log(cal);
           if ((cal != null ? (_ref2 = cal.author[0]) != null ? _ref2.name["$t"] : void 0 : void 0) === "Email reminders") {
             GC.calendar_id = cal.id["$t"];
-            console.log('calendar found', GC.calendar_id);
+            localStorage['gc_calendar_id'] = GC.calendar_id;
             return;
           }
         }
-        console.log('creating calendar');
-        return GC.createCalendar(function() {});
+        return GC.createCalendar(function(r) {
+          console.warn('creating calendar', r);
+          GC.calendar_id = r.data.id;
+          localStorage['gc_calendar_id'] = GC.calendar_id;
+          return GC.getEvents(function() {});
+        });
+      });
+    },
+    getEvents: function(callback) {
+      var cid, request, url;
+      if (callback == null) callback = function() {};
+      if (!GC.calendar_id) return;
+      cid = GC.calendar_id.substring(GC.calendar_id.lastIndexOf('/') + 1);
+      url = "" + baseURL + "/" + cid + "/private/full";
+      request = {
+        'method': 'GET',
+        'parameters': {
+          'alt': 'json'
+        }
+      };
+      return oauth.sendSignedRequest(url, request, function(resp) {
+        var events, _ref;
+        resp = JSON.parse(resp);
+        events = $.map((_ref = resp.feed.entry) != null ? _ref : [], function(val) {
+          var id;
+          id = val.id['$t'].substring(val.id['$t'].lastIndexOf('/') + 1);
+          return {
+            event_id: id,
+            date: Date.parse(val['gd$when'][0].endTime),
+            thread_id: val.title['$t'].match(/\#(.*)/)[1]
+          };
+        });
+        GC.events = events;
+        return callback(resp);
+      });
+    },
+    deleteEvent: function(event_id) {
+      var cid, request, url;
+      console.log('deleting event');
+      cid = GC.calendar_id.substring(GC.calendar_id.lastIndexOf('/') + 1);
+      url = "" + baseURL + "/" + cid + "/private/full/" + event_id;
+      request = {
+        'method': 'DELETE',
+        'headers': {
+          'GData-Version': '2.0',
+          'If-Match': '*'
+        }
+      };
+      return oauth.sendSignedRequest(url, request, function(resp) {
+        return callback(JSON.parse(resp));
+      });
+    },
+    createEvent: function(data, callback) {
+      var cid, event, request, time, url, _i, _len, _ref;
+      if (callback == null) callback = function() {};
+      console.warn('creating event', data);
+      _ref = GC.events;
+      for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+        event = _ref[_i];
+        console.log(event.thread_id, data.thread_id);
+        if (event.thread_id === data.thread_id) GC.deleteEvent(event.event_id);
+      }
+      cid = GC.calendar_id.substring(GC.calendar_id.lastIndexOf('/') + 1);
+      url = "" + baseURL + "/" + cid + "/private/full";
+      time = (+new Date()) + (+data.time) * 1000;
+      time = new Date(time);
+      time = dateToISO(time);
+      request = {
+        'method': 'POST',
+        'headers': {
+          'GData-Version': '2.0',
+          'Content-Type': 'application/json'
+        },
+        'body': "{                                \"data\": {                    \"title\": \"Email Reminder: \#" + data.thread_id + "\",                    \"details\": \"Remind to send mail: " + data.subject + "\",                    \"transparency\": \"opaque\",                    \"status\": \"confirmed\",                                        \"when\": [                        {                            \"start\": \"" + time + "\",                            \"end\": \"" + time + "\"                        }                    ]                }            }"
+      };
+      return oauth.sendSignedRequest(url, request, function(resp) {
+        callback(JSON.parse(resp));
+        return GC.getEvents();
+      });
+    },
+    pollEvents: function() {
+      var event, today, _i, _len, _ref, _results;
+      console.log('polling events');
+      today = +(new Date());
+      _ref = GC.events;
+      _results = [];
+      for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+        event = _ref[_i];
+        if (event.date < today) {
+          _results.push(GC.notify(event.thread_id));
+        } else {
+          _results.push(void 0);
+        }
+      }
+      return _results;
+    },
+    notify: function(thread_id) {
+      return chrome.tabs.getSelected(null, function(tab) {
+        return chrome.tabs.sendRequest(tab.id, {
+          method: "notify",
+          thread_id: thread_id
+        });
       });
     }
   };
+
+  GC.getEvents();
+
+  setInterval(function() {
+    return GC.pollEvents();
+  }, 1000);
+
+  setInterval(function() {
+    return GC.getEvents();
+  }, 1000 * 60);
 
 }).call(this);
