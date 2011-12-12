@@ -227,4 +227,37 @@
     return GC.getEvents();
   }, 1000 * 60);
 
+  chrome.windows.getAll(null, function(windows) {
+    var win, _i, _len, _results;
+    _results = [];
+    for (_i = 0, _len = windows.length; _i < _len; _i++) {
+      win = windows[_i];
+      _results.push(chrome.tabs.getAllInWindow(win.id, function(tabs) {
+        var file, tab, _j, _len2, _results2;
+        _results2 = [];
+        for (_j = 0, _len2 = tabs.length; _j < _len2; _j++) {
+          tab = tabs[_j];
+          console.log(tab.url);
+          if (!tab.url.match(/mail\.google\.com\/mail/)) continue;
+          _results2.push((function() {
+            var _k, _len3, _ref, _results3;
+            _ref = ["lib/jquery.min.js", "content_script.js"];
+            _results3 = [];
+            for (_k = 0, _len3 = _ref.length; _k < _len3; _k++) {
+              file = _ref[_k];
+              console.log('executing in existing tabs');
+              _results3.push(chrome.tabs.executeScript(tab.id, {
+                file: file,
+                allFrames: true
+              }));
+            }
+            return _results3;
+          })());
+        }
+        return _results2;
+      }));
+    }
+    return _results;
+  });
+
 }).call(this);

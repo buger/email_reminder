@@ -161,7 +161,7 @@ baseURL = "https://www.google.com/calendar/feeds"
     
     createEvent: (data, callback = ->) ->
         console.warn 'creating event', data
-        
+
         for event in GC.events
             console.log event.thread_id, data.thread_id 
 
@@ -228,3 +228,19 @@ setInterval ->
 setInterval ->
     GC.getEvents()
 , 1000*60
+
+
+chrome.windows.getAll null, (windows) ->
+    for win in windows    
+        chrome.tabs.getAllInWindow win.id, (tabs) ->
+            for tab in tabs
+                console.log tab.url
+                unless tab.url.match(/mail\.google\.com\/mail/)
+                    continue
+                
+                for file in ["lib/jquery.min.js","content_script.js"]
+                    console.log 'executing in existing tabs'
+
+                    chrome.tabs.executeScript tab.id, 
+                        file: file
+                        allFrames: true

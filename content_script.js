@@ -70,14 +70,18 @@
       var _this = this;
       this.detectDocument();
       if ($("#emailReminderAuth", this.doc).length === 0 && !this.logged) {
-        $('<div id="emailReminderAuth"><a href="#">Login at Google Calendar</a></div>').css({
+        $('<div id="emailReminderAuth"><a href="#">Click Enable Email reminders</a></div>').css({
           color: '#333',
           'font-family': 'Arial',
           background: '#DDE5FF',
-          padding: '6px 7px 5px 9px',
-          'border-bottom': '1px solid #C9D7F1',
-          'margin-bottom': '1px',
-          position: 'relative',
+          padding: '50px',
+          position: 'absolute',
+          top: '20%',
+          left: '25%',
+          right: '25%',
+          margin: '0 auto',
+          border: '1px solid #ccc',
+          'z-index': '10',
           'text-align': 'center'
         }).prependTo(this.doc.body).find('a').bind('click', function() {
           return chrome.extension.sendRequest({
